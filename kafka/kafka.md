@@ -49,3 +49,24 @@
   2. 队列主动推送到各个消费者
 
 ![发布/订阅模式](https://tva4.sinaimg.cn/large/005VwC5mly1gci7ctca95j30o109xtaf.jpg)
+
+
+## kafka的架构
+
+![kafka架构](https://tva3.sinaimg.cn/large/005VwC5mly1gdcevv7fz4j31170hz0w3.jpg)
+
+#### 相关概念
+* Producer：生产者，向kafka发送消息
+* Consumer：消费者，向kafka读取消息
+* Consumer Group(CG)：消费者组，由多个consumer组成。消费者组内每个消费者负责消费不同分区的数据，一个分区只能由一个组内消费者消费；消费者组之间互不影响。所以有的消费者都来自某个消费者组，即消费者组是逻辑上的一个订阅者。（一个消费者可以对应消费多个分区，但是一个分区不同被同一个组内的多个消费者消费，同一个分区可以被不同的消费者组消费）
+* Broker：一个 kafka服务器 就是一个 Broker，一个集群有多个broker组成，一个broker可以容纳多个topic。
+* Topic：逻辑上的一个队列，是消息主题，每一个Topic就是一个分类。生产者和消费者面向的都是一个topic。
+* Partition：分区，方便水平扩展，一个broker里面的同一个topic可以有一个或者多个分区。每个partition都是一个有序的队列。分区的 leader与follower分布在不同的broker。跟broker有点关系。。。（每个分区的leader+follower的数量）
+* Replica：副本，备份数据,副本的个数不能超过broker数，副本数最大为broker数一致，如果不一致，那么他的如果一台挂掉了，其实副本数量可能会挂掉2个，没什么意义？
+
+
+#### kafka
+kafka创建新的Topic的时候，指定副本为2的时候，总共会有两个，一个是master副本，一个follower副本。而不是1个master，2个follower副本。
+
+
+#### 工作机制

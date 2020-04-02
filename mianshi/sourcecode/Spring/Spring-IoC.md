@@ -116,11 +116,10 @@ protected void prepareRefresh() {
 			}
 		}
 
-		// 初始化 propertie文件 classpatXML 类中是空实现
+		//初始化 propertie文件 classpatXML 类中是空实现
 		initPropertySources();
 
-		// Validate that all properties marked as required are resolvable:
-		// see ConfigurablePropertyResolver#setRequiredProperties
+		//校验xml
 		getEnvironment().validateRequiredProperties();
 
 		// Store pre-refresh ApplicationListeners...
@@ -140,9 +139,237 @@ protected void prepareRefresh() {
 
 ```
 
+#### 创建 Bean 容器，加载并注册 Bean
+
+`obtainFreshBeanFactory`
+
+```java
+protected ConfigurableListableBeanFactory obtainFreshBeanFactory() {
+	  //关闭旧的 beanFactory，创建新的 BeanFactory，加载 Bean 定义、注册 Bean 等等
+		//方法继承自 org.springframework.context.support.AbstractRefreshableApplicationContext
+		refreshBeanFactory();
+		//返回bean工厂
+		return getBeanFactory();
+}
+
+```
+
+
+```java
+protected final void refreshBeanFactory() throws BeansException {
+	//如果已经存在工厂
+	if (hasBeanFactory()) {
+   //进行对已经注册 bean  依赖信息等所有 都进行清空
+	 // 如果 ApplicationContext 中已经加载过 BeanFactory 了，销毁所有 Bean，关闭 BeanFactory
+	// 注意，应用中 BeanFactory 本来就是可以多个的，这里可不是说应用全局是否有 BeanFactory，而是当前
+		destroyBeans();
+    // 关闭工厂，实际代码为 设置了null 属性
+		//就是下面的 设置为了null
+		closeBeanFactory();
+	}
+	try {
+		//创建新的工厂
+		DefaultListableBeanFactory beanFactory = createBeanFactory();
+		//序列化 id
+		beanFactory.setSerializationId(getId());
+     // 设置 BeanFactory 的两个配置属性：是否允许 Bean 覆盖、是否允许循环引用
+		customizeBeanFactory(beanFactory);
+    // 加载 Bean 到 BeanFactory 中
+		loadBeanDefinitions(beanFactory);
+		synchronized (this.beanFactoryMonitor) {
+			this.beanFactory = beanFactory;
+		}
+	}
+	catch (IOException ex) {
+		throw new ApplicationContextException("I/O error parsing bean definition source for " + getDisplayName(), ex);
+	}
+}
+```
+
+从ApplicationContext 的继承关系来看，是继承了BeanFactory，但是为啥。。又注入了一个 BeanFactory，而不是自己实现呢？？？
+
+
+>看到这里的时候，我觉得读者就应该站在高处看 ApplicationContext 了，ApplicationContext 继承自 BeanFactory，但是它不应该被理解为 BeanFactory 的实现类，而是说其内部持有一个实例化的 BeanFactory（DefaultListableBeanFactory）。以后所有的 BeanFactory 相关的操作其实是委托给这个实例来处理的。
+
+#### DefaultListableBeanFactory
+
+![继承图](https://tva1.sinaimg.cn/large/005VwC5mly1gd8mv6b8g8j312g0o2n0o.jpg)
+
+#### BeanDefinition
+
+BeanDefinition就是我们所说的Spring 的 bean，我们在XML中定义的bean都会被转换为一个个BeanDefinition存在于SpringFactory中。
+
+>BeanDefinition 中保存了我们的 Bean 信息，比如这个 Bean 指向的是哪个类、是否是单例的、是否懒加载、这个 Bean 依赖了哪些 Bean 等等。
+
+每一个Bean配置，都是一个BeanDefinition配置
+
+```java
+public interface BeanDefinition extends AttributeAccessor, BeanMetadataElement {
+
+	// 我们可以看到，默认只提供 sington 和 prototype 两种，
+	// 很多读者可能知道还有 request, session, globalSession, application, websocket 这几种，不过，它们属于基于 web 的扩展。
+	String SCOPE_SINGLETON = ConfigurableBeanFactory.SCOPE_SINGLETON;
+	String SCOPE_PROTOTYPE = ConfigurableBeanFactory.SCOPE_PROTOTYPE;
+
+
+	//暂时不知道
+	int ROLE_APPLICATION = 0;
+	int ROLE_SUPPORT = 1;
+	int ROLE_INFRASTRUCTURE = 2;
+
+
+	//设置父容器名称，应该是通过某Map，通过名称获取父容器的各种信息吧。
+	// 设置父 Bean，这里涉及到 bean 继承，不是 java 继承。请参见附录的详细介绍
+  // 一句话就是：继承父 Bean 的配置信息而已
+	void setParentName(@Nullable String parentName);
+
+	//获取
+	@Nullable
+	String getParentName();
+
+	 // 设置 Bean 的类名称，将来是要通过反射来生成实例的
+	void setBeanClassName(@Nullable String beanClassName);
+	@Nullable
+	String getBeanClassName();
+
+	//Scop
+	void setScope(@Nullable String scope);
+	@Nullable
+	String getScope();
+
+	//设置是否懒加载
+	void setLazyInit(boolean lazyInit);
+	boolean isLazyInit();
+
+	//设置依赖信息
+	// 设置该 Bean 依赖的所有的 Bean，注意，这里的依赖不是指属性依赖(如 @Autowire 标记的)，
+ // 是 depends-on="" 属性设置的值。
+	void setDependsOn(@Nullable String... dependsOn);
+	@Nullable
+	String[] getDependsOn();
+
+  //设置该bean是否可以被注入到其他bean中，只对根据类型注入有效，如果根据名称注入，即使是false，也是可以注入的
+	void setAutowireCandidate(boolean autowireCandidate);
+	boolean isAutowireCandidate();
+
+	//设置是否是 主要的bean，根据类型注入时使用
+	  // 主要的。同一接口的多个实现，如果不指定名字的话，Spring 会优先选择设置 primary 为 true 的 bean
+	void setPrimary(boolean primary);
+	boolean isPrimary();
+
+	//xml 中设置的工厂方法
+	// 如果该 Bean 采用工厂方法生成，指定工厂名称。对工厂不熟悉的读者，请参加附录
+	// 一句话就是：有些实例不是用反射生成的，而是用工厂模式生成的
+	void setFactoryBeanName(@Nullable String factoryBeanName);
+	@Nullable
+	String getFactoryBeanName();
+	//设置指定工厂指定方法
+	void setFactoryMethodName(@Nullable String factoryMethodName);
+	@Nullable
+	String getFactoryMethodName();
+
+	// 获取指定构造器的参数
+	ConstructorArgumentValues getConstructorArgumentValues();
+
+	//是否有构造器参数
+	default boolean hasConstructorArgumentValues() {
+		return !getConstructorArgumentValues().isEmpty();
+	}
+
+	//获取 bean中的属性值，
+	MutablePropertyValues getPropertyValues();
+ bean中的属性值，	default boolean hasPropertyValues() {
+		return !getPropertyValues().isEmpty();
+	}
+
+	//设置初始化的方法名
+	void setInitMethodName(@Nullable String initMethodName);
+	@Nullable
+	String getInitMethodName();
+
+	//设置销毁的方法名
+	void setDestroyMethodName(@Nullable String destroyMethodName);
+	@Nullable
+	String getDestroyMethodName();
+
+	/**
+	 * Set the role hint for this {@code BeanDefinition}. The role hint
+	 * provides the frameworks as well as tools with an indication of
+	 * the role and importance of a particular {@code BeanDefinition}.
+	 * @since 5.1
+	 * @see #ROLE_APPLICATION
+	 * @see #ROLE_SUPPORT
+	 * @see #ROLE_INFRASTRUCTURE
+	 */
+	void setRole(int role);
+
+	/**
+	 * Get the role hint for this {@code BeanDefinition}. The role hint
+	 * provides the frameworks as well as tools with an indication of
+	 * the role and importance of a particular {@code BeanDefinition}.
+	 * @see #ROLE_APPLICATION
+	 * @see #ROLE_SUPPORT
+	 * @see #ROLE_INFRASTRUCTURE
+	 */
+	int getRole();
+
+	//描述
+	void setDescription(@Nullable String description);
+	@Nullable
+	String getDescription();
+
+
+	// Read-only attributes
+
+	/**
+	 * Return a resolvable type for this bean definition,
+	 * based on the bean class or other specific metadata.
+	 * <p>This is typically fully resolved on a runtime-merged bean definition
+	 * but not necessarily on a configuration-time definition instance.
+	 * @return the resolvable type (potentially {@link ResolvableType#NONE})
+	 * @since 5.2
+	 * @see ConfigurableBeanFactory#getMergedBeanDefinition
+	 */
+	ResolvableType getResolvableType();
+
+	//是否是单例
+	boolean isSingleton();
+
+	//是否是 prototype类型
+	boolean isPrototype();
+
+  //是否是抽象类
+	// 如果这个 Bean 是被设置为 abstract，那么不能实例化，
+	// 常用于作为 父bean 用于继承，其实也很少用......
+	boolean isAbstract();
+
+	/**
+	 * Return a description of the resource that this bean definition
+	 * came from (for the purpose of showing context in case of errors).
+	 */
+	@Nullable
+	String getResourceDescription();
+
+	/**
+	 * Return the originating BeanDefinition, or {@code null} if none.
+	 * Allows for retrieving the decorated bean definition, if any.
+	 * <p>Note that this method returns the immediate originator. Iterate through the
+	 * originator chain to find the original BeanDefinition as defined by the user.
+	 */
+	@Nullable
+	BeanDefinition getOriginatingBeanDefinition();
+
+}
+```
+
+这个类总览看起来像是一个XML中bean定义中的所有东西了，这里只是记录了信息，真正的生成，不是在这里。
+
+
+
+
+
 
 #### Spring 扩展点（实现接口）
 
 1. `BeanPostProcessor` 实现该接口，主要有两个方法：`postProcessBeforeInitialization`和`postProcessAfterInitialization`，主要在bean初始化时候做一些操作。
 2. `BeanFactoryPostProcessor` 实现该接口，主要是在容器初始化之后，进行一些操作
-3. `ApplicationListener` 实现该接口，在
